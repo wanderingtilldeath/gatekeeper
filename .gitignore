@@ -1,0 +1,18 @@
+# Java
+target/
+*.class
+
+# Go
+bin/
+pkg/
+
+# Logs & env files
+*.log
+.env
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
