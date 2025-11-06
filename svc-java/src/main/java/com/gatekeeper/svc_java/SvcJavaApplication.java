@@ -8,6 +8,9 @@ public class SvcJavaApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(SvcJavaApplication.class, args);
+
+
 	}
+
 
 }
