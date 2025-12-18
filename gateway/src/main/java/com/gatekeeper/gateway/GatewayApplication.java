@@ -17,21 +17,22 @@ public class GatewayApplication {
 	public static void main(String[] args) {
 		SpringApplication.run(GatewayApplication.class, args);
 	}
+
     @Bean
     @LoadBalanced
     public WebClient.Builder webClientBuilder() {
         return WebClient.builder();
     }
+
     @Bean(name = "userKeyResolver")
     public KeyResolver userKeyResolver() {
         return exchange -> {
             String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
 
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                return Mono.just(authHeader.substring(7)); // use token as key
+                return Mono.just(authHeader.substring(7));
             }
 
-            // fallback to IP-based rate limiting
             return Mono.just(exchange.getRequest().getRemoteAddress().getAddress().getHostAddress());
         };
     }

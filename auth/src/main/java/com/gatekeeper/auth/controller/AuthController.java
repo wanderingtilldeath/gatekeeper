@@ -3,10 +3,14 @@ package com.gatekeeper.auth.controller;
 import com.gatekeeper.auth.jwt.JwtUtil;
 import com.gatekeeper.auth.model.User;
 import com.gatekeeper.auth.service.UserService;
+import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/auth")
+@EnableDiscoveryClient
 public class AuthController {
 
     private final UserService userService;
@@ -34,8 +38,12 @@ public class AuthController {
     }
 
     @GetMapping("/validate")
-    public String validate(@RequestParam String token) {
+    public ResponseEntity<String> validate(@RequestParam String token) {
         String username = jwtUtil.validateToken(token);
-        return username != null ? username : "Invalid token";
+        if (username == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("");
+        }
+        return ResponseEntity.ok(username);
     }
+
 }

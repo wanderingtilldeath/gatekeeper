@@ -11,4 +11,9 @@ public class HealthController {
     public String health() {
         return "svc-java healthy ✅";
     }
+
+    @GetMapping("/java/hello")
+    public String hello() {
+        return "Hello from svc-java";
+    }
 }
