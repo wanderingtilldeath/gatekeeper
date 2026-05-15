@@ -7,9 +7,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class HealthController {
+
     @GetMapping("/java/health")
-    public String health() {
-        return "svc-java healthy ✅";
+    public String health() throws InterruptedException{
+        return "svc-java healthy ";
     }
 
     @GetMapping("/java/hello")

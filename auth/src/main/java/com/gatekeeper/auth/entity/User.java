@@ -1,4 +1,4 @@
-package com.gatekeeper.auth.model;
+package com.gatekeeper.auth.entity;
 
 public class User {
     private String username;
