@@ -13,6 +13,8 @@ eureka:
 GATEWAY_SECRET: test-gateway-secret
 
 gateway:
+  jwt:
+    min-refresh-interval: 1s
   svc-java:
     response-timeout-ms: 300
 
