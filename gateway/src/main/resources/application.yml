@@ -1,0 +1,131 @@
+spring:
+  application:
+    name: gateway
+  config:
+    import: optional:configserver:${CONFIG_SERVER_URL:http://localhost:8888}
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 1000
+          # Routes live here (one copy, testable). Limits are plain properties with defaults below,
+          # so Config Server's gateway.properties can change them without a rebuild.
+          routes:
+            # Brute-force guard: one login attempt costs 10 tokens; 1 token/s refills, burst of 3 attempts.
+            - id: auth-login
+              uri: ${AUTH_URI:lb://auth}
+              predicates:
+                - Path=/auth/login
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@ipKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${gateway.limits.login.rate:1}
+                    redis-rate-limiter.burstCapacity: ${gateway.limits.login.burst:30}
+                    redis-rate-limiter.requestedTokens: ${gateway.limits.login.cost:10}
+            - id: auth
+              uri: ${AUTH_URI:lb://auth}
+              predicates:
+                - Path=/auth/**
+            - id: svc-java
+              uri: ${SVC_JAVA_URI:lb://svc-java}
+              predicates:
+                - Path=/api/java/**
+              metadata:
+                connect-timeout: 1000
+                response-timeout: ${gateway.svc-java.response-timeout-ms:3000}
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${gateway.limits.api.rate:100}
+                    redis-rate-limiter.burstCapacity: ${gateway.limits.api.burst:100}
+                - name: CircuitBreaker
+                  args:
+                    name: javaService
+                    fallbackUri: forward:/fallback/java
+                    statusCodes: 500,502,503,504
+                # Retries only idempotent GETs, and only for gateway-ish errors.
+                - name: Retry
+                  args:
+                    retries: 2
+                    methods: GET
+                    statuses: BAD_GATEWAY,SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT
+                    backoff:
+                      firstBackoff: 50ms
+                      maxBackoff: 500ms
+                      factor: 2
+                - SetRequestHeader=X-Gateway-Token, ${gateway.shared-secret}
+            - id: svc-go
+              uri: ${SVC_GO_URI:http://localhost:8082}
+              predicates:
+                - Path=/api/go/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${gateway.limits.api.rate:100}
+                    redis-rate-limiter.burstCapacity: ${gateway.limits.api.burst:100}
+                - name: CircuitBreaker
+                  args:
+                    name: goService
+                    fallbackUri: forward:/fallback/go
+                    statusCodes: 500,502,503,504
+                - SetRequestHeader=X-Gateway-Token, ${gateway.shared-secret}
+
+server:
+  port: 8080
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+gateway:
+  shared-secret: ${GATEWAY_SECRET:dev-only-gateway-secret}
+  jwt:
+    jwks-uri: ${JWKS_URI:http://localhost:8081/auth/.well-known/jwks.json}
+    issuer: https://gatekeeper.local
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+    instances:
+      javaService:
+        baseConfig: default
+      goService:
+        baseConfig: default
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 5s
+    instances:
+      javaService:
+        baseConfig: default
+      goService:
+        baseConfig: default
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  health:
+    redis:
+      enabled: false   # rate limiting fails open, so Redis being down must not mark the gateway DOWN
+  metrics:
+    distribution:
+      percentiles-histogram:
+        spring.cloud.gateway.requests: true
