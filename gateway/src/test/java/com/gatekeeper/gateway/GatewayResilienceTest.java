@@ -90,6 +90,6 @@ class GatewayResilienceTest extends GatewayTestSupport {
 
         var headers = received("/api/go/whoami").getRequest().getHeaders();
         assertThat(headers.getHeader("X-User-Id").values()).containsExactly("user-1");
-        assertThat(headers.getHeader("X-Gateway-Token").values()).containsExactly("dev-only-gateway-secret");
+        assertThat(headers.getHeader("X-Gateway-Token").values()).containsExactly("test-gateway-secret");
     }
 }

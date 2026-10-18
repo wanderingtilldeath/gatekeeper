@@ -97,7 +97,7 @@ class GatewaySecurityTest extends GatewayTestSupport {
         assertThat(headers.getHeader("X-User-Id").values()).containsExactly(SUB);
         assertThat(headers.getHeader("X-User-Roles").values()).containsExactly("USER,ADMIN");
         assertThat(headers.getHeader("X-User-Extra").isPresent()).isFalse();
-        assertThat(headers.getHeader("X-Gateway-Token").values()).containsExactly("dev-only-gateway-secret");
+        assertThat(headers.getHeader("X-Gateway-Token").values()).containsExactly("test-gateway-secret");
     }
 
     @Test

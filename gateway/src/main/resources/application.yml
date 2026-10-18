@@ -24,14 +24,22 @@ spring:
               filters:
                 - name: RequestRateLimiter
                   args:
-                    key-resolver: "#{@ipKeyResolver}"
+                    key-resolver: "#{@loginKeyResolver}"
                     redis-rate-limiter.replenishRate: ${gateway.limits.login.rate:1}
                     redis-rate-limiter.burstCapacity: ${gateway.limits.login.burst:30}
                     redis-rate-limiter.requestedTokens: ${gateway.limits.login.cost:10}
+            # register / refresh / everything else under /auth: each register costs a BCrypt hash and a DB row,
+            # so cap it per IP (1/s, burst 5 by default).
             - id: auth
               uri: ${AUTH_URI:lb://auth}
               predicates:
                 - Path=/auth/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@authKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${gateway.limits.auth.rate:1}
+                    redis-rate-limiter.burstCapacity: ${gateway.limits.auth.burst:5}
             - id: svc-java
               uri: ${SVC_JAVA_URI:lb://svc-java}
               predicates:
@@ -87,7 +95,8 @@ eureka:
       defaultZone: http://localhost:8761/eureka/
 
 gateway:
-  shared-secret: ${GATEWAY_SECRET:dev-only-gateway-secret}
+  # No default on purpose: the gateway refuses to start without GATEWAY_SECRET.
+  shared-secret: ${GATEWAY_SECRET}
   jwt:
     jwks-uri: ${JWKS_URI:http://localhost:8081/auth/.well-known/jwks.json}
     issuer: https://gatekeeper.local

@@ -14,6 +14,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -60,6 +61,20 @@ class GatewayRateLimitTest extends GatewayTestSupport {
                 .expectStatus().isEqualTo(429)
                 .expectHeader().exists("Retry-After");
 
-        verify(limiter).isAllowed(eq("auth-login"), any());
+        verify(limiter).isAllowed(eq("auth-login"), startsWith("login:"));
+    }
+
+    @Test
+    void registerAndRefreshAreLimitedPerIpInTheirOwnBucket() {
+        when(limiter.isAllowed(any(), any())).thenReturn(Mono.just(new RateLimiter.Response(false, Map.of())));
+
+        client.post().uri("/auth/register").header("Content-Type", "application/json").bodyValue("{}")
+                .exchange().expectStatus().isEqualTo(429).expectHeader().exists("Retry-After");
+        client.post().uri("/auth/refresh").header("Content-Type", "application/json").bodyValue("{}")
+                .exchange().expectStatus().isEqualTo(429);
+
+        // "auth:" keys, so they never share a bucket with "login:" keys
+        verify(limiter, org.mockito.Mockito.times(2)).isAllowed(eq("auth"), startsWith("auth:"));
+        assertThat(count("POST", "/auth/register")).isZero();
     }
 }
