@@ -21,6 +21,9 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
     private final byte[] secret;
 
     public GatewayAuthFilter(@Value("${gateway.shared-secret}") String secret) {
+        if (secret.isBlank()) { // an empty secret would accept an empty X-Gateway-Token
+            throw new IllegalArgumentException("GATEWAY_SECRET must not be empty");
+        }
         this.secret = secret.getBytes(StandardCharsets.UTF_8);
     }
 

@@ -55,7 +55,7 @@ curl -i localhost:8080/api/java/fail -H "Authorization: Bearer $ACCESS"  # 503 J
 curl localhost:8080/api/go/whoami -H "Authorization: Bearer $ACCESS"
 ```
 
-Hit `/api/java/hello` in a tight loop to see `429` with `Retry-After`; hit `/auth/login` with a wrong password a few times in a row for the stricter login limit.
+Hit `/api/java/hello` in a tight loop to see `429` with `Retry-After`; hit `/auth/login` with a wrong password a few times in a row for the stricter login limit. `/auth/register` and `/auth/refresh` have their own per-IP limit (1/s, burst 5).
 
 ## Tests (no Docker needed)
 
@@ -73,12 +73,13 @@ CI (`.github/workflows/ci.yml`) runs the same plus `docker compose build`.
 
 | Variable | Used by | Meaning |
 |----------|---------|---------|
-| `GATEWAY_SECRET` | gateway, svc-java, svc-go | Shared secret header value. Compose default is demo-only. |
+| `GATEWAY_SECRET` | gateway, svc-java, svc-go | Shared secret header value. **Required**: the three services refuse to start without it (no default in code). Compose supplies a demo-only value if you set none. |
+| `DEMO_ENDPOINTS_ENABLED` | svc-java | Turns on `/api/java/slow` and `/fail` for timeout/breaker demos. Off by default (compose turns it on): otherwise any logged-in user could trip the breaker for everyone. |
 | `AUTH_JWT_PRIVATE_KEY` | auth | PKCS#8 PEM private key. If unset, a key is generated once into `AUTH_JWT_KEY_FILE` (compose keeps it in a volume). |
 | `DB_URL`, `DB_USER`, `DB_PASSWORD` | auth | Postgres connection. |
 | `JWKS_URI` | gateway | Where to fetch the public keys. |
 | `SVC_GO_URI`, `SVC_JAVA_URI`, `AUTH_URI` | gateway | Override route targets (default: Eureka `lb://` for Java services). |
-| `GATEWAY_LIMITS_API_RATE` / `_BURST` | gateway | Per-user limit (also settable in Config Server `gateway.properties`). |
+| `GATEWAY_LIMITS_API_RATE` / `_BURST` | gateway | Per-user limit (also settable in Config Server `gateway.properties`; same for `..._LOGIN_...` and `..._AUTH_...`). |
 
 Copy `.env.example` to `.env` to override the compose defaults.
 

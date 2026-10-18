@@ -25,10 +25,23 @@ public class GatewayApplication {
 				.switchIfEmpty(Mono.fromSupplier(() -> remoteIp(exchange.getRequest().getRemoteAddress())));
 	}
 
-	/** Bucket per client IP, for unauthenticated routes such as login. X-Forwarded-For is ignored on purpose (spoofable). */
+	/**
+	 * Per-IP buckets for the unauthenticated /auth routes. The Redis limiter keys its bucket by this value alone
+	 * (not by route), so each route gets its own prefix; otherwise login and register would drain one shared bucket.
+	 * X-Forwarded-For is ignored on purpose (spoofable).
+	 */
 	@Bean
-	public KeyResolver ipKeyResolver() {
-		return exchange -> Mono.just(remoteIp(exchange.getRequest().getRemoteAddress()));
+	public KeyResolver loginKeyResolver() {
+		return ipKeyResolver("login:");
+	}
+
+	@Bean
+	public KeyResolver authKeyResolver() {
+		return ipKeyResolver("auth:");
+	}
+
+	private static KeyResolver ipKeyResolver(String prefix) {
+		return exchange -> Mono.just(prefix + remoteIp(exchange.getRequest().getRemoteAddress()));
 	}
 
 	private static String remoteIp(InetSocketAddress address) {

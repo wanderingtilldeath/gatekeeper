@@ -8,11 +8,13 @@ import (
 	"os"
 )
 
+// gatewaySecret has no default on purpose: a default would be public (it is in the repo).
 func gatewaySecret() string {
-	if s := os.Getenv("GATEWAY_SECRET"); s != "" {
-		return s
+	s := os.Getenv("GATEWAY_SECRET")
+	if s == "" {
+		log.Fatal("GATEWAY_SECRET is not set; refusing to start")
 	}
-	return "dev-only-gateway-secret"
+	return s
 }
 
 // requireGateway rejects requests that did not come through the gateway (it adds X-Gateway-Token).

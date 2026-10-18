@@ -84,6 +84,7 @@ services:
     environment:
       - *eureka
       - *gateway-secret
+      - DEMO_ENDPOINTS_ENABLED=true   # /api/java/slow and /fail, for the breaker/timeout demos
     depends_on:
       discovery-server:
         condition: service_healthy
