@@ -35,6 +35,7 @@ docker compose up -d --build        # needs Docker
 
 | What | Where |
 |------|-------|
+| **Console (web UI)** | http://localhost:8090 |
 | Gateway (everything goes through here) | http://localhost:8080 |
 | Eureka dashboard | http://localhost:8761 |
 | Grafana dashboard (no login, local only) | http://localhost:3000 |
@@ -56,6 +57,19 @@ curl localhost:8080/api/go/whoami -H "Authorization: Bearer $ACCESS"
 ```
 
 Hit `/api/java/hello` in a tight loop to see `429` with `Retry-After`; hit `/auth/login` with a wrong password a few times in a row for the stricter login limit. `/auth/register` and `/auth/refresh` have their own per-IP limit (1/s, burst 5).
+
+## Console (web UI)
+
+`frontend/` is a small visual console (plain HTML/CSS/JS, no build step, served by nginx). It talks to the gateway through nginx (`/gw/` is proxied), so there is no CORS setup. Open http://localhost:8090 and:
+
+1. **Sign in**: register and log in; see the decoded token (`kid`, claims) and a countdown to expiry. "Refresh token" rotates it, and "Replay old refresh token" shows reuse detection revoking the family.
+2. **Send a request**: pick an endpoint, optionally send no/tampered token or fake `X-User-Id` headers, and see status, latency and response headers. `whoami` shows the identity the backend received.
+3. **Pipeline**: shows how far the last request got: JWT check, rate limit, circuit breaker, backend.
+4. **Protections**: buttons for a 150-request burst (429s), tripping the breaker (503 fallback), and repeated wrong passwords (login limit).
+5. **Timeline**: one square per response, plus status counts and client-side p50/p95.
+6. **Server view**: requests/s, 429/s, 5xx/s and breaker state, read from the gateway's Prometheus endpoint every 2 seconds.
+
+Tokens live only in the page's memory (a reload forgets them) and the page sets a strict Content-Security-Policy. This is a demo console, not a production client. It was checked against a mock gateway in headless Chrome, not yet against the real stack.
 
 ## Tests (no Docker needed)
 
@@ -106,6 +120,6 @@ Resume bullet (fill in measured values only): *Built a Spring Cloud Gateway edge
 
 ## Layout
 
-`discovery-server` (Eureka) · `config-server` (gateway limits) · `gateway` · `auth` · `svc-java` · `svc-go` · `infra/` (Prometheus, Grafana) · `bench/` (k6) · `docs/`
+`discovery-server` (Eureka) · `config-server` (gateway limits) · `gateway` · `auth` · `svc-java` · `svc-go` · `frontend/` (web console) · `infra/` (Prometheus, Grafana) · `bench/` (k6) · `docs/`
 
 Stack: Java 21, Spring Boot 3.5.15, Spring Cloud 2025.0.3 (the last open-source release of that line; moving to Boot 4 is a separate migration), Go 1.25, Postgres 16, Redis 7.

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gatekeeper Console</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Gatekeeper Console</h1>
+      <p class="sub">Send requests through the gateway and watch what it does with them.</p>
+    </div>
+    <div class="health" id="health" role="status">gateway: checking…</div>
+  </header>
+
+  <noscript>This console needs JavaScript.</noscript>
+
+  <main class="grid">
+    <!-- 1. Login -->
+    <section class="card" aria-labelledby="h-auth">
+      <h2 id="h-auth">1. Sign in</h2>
+      <div class="row">
+        <label>Username <input id="username" autocomplete="off" spellcheck="false"></label>
+        <label>Password <input id="password" type="text" autocomplete="off" value="pass1234"></label>
+      </div>
+      <div class="row buttons">
+        <button id="btn-register">Register</button>
+        <button id="btn-login">Log in</button>
+        <button id="btn-refresh" disabled>Refresh token</button>
+        <button id="btn-replay" disabled title="Sends the refresh token that was already used. The server treats that as theft.">Replay old refresh token</button>
+        <button id="btn-logout" class="ghost" disabled>Forget tokens</button>
+      </div>
+      <div id="token-box" class="token-box" hidden>
+        <div class="expiry"><span id="expiry-text"></span><div class="bar"><div id="expiry-bar"></div></div></div>
+        <div class="two">
+          <div><h3>Header</h3><pre id="jwt-header"></pre></div>
+          <div><h3>Claims</h3><pre id="jwt-claims"></pre></div>
+        </div>
+      </div>
+      <p class="hint" id="auth-hint">Register a user, then log in. Tokens are kept in this page only; reloading forgets them.</p>
+    </section>
+
+    <!-- 2. Request lab -->
+    <section class="card" aria-labelledby="h-lab">
+      <h2 id="h-lab">2. Send a request</h2>
+      <div class="row">
+        <label class="grow">Request
+          <select id="preset"></select>
+        </label>
+        <label>Token
+          <select id="token-mode">
+            <option value="valid">valid</option>
+            <option value="none">none</option>
+            <option value="tampered">tampered signature</option>
+          </select>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="spoof"> also send fake <code>X-User-Id: admin</code> and <code>X-User-Roles: SUPERUSER</code></label>
+      <div class="row buttons"><button id="btn-send" class="primary">Send</button></div>
+      <div id="result" class="result" hidden>
+        <div class="result-head"><span id="res-status" class="pill"></span><span id="res-ms"></span><span id="res-what"></span></div>
+        <table id="res-headers" class="kv"></table>
+        <pre id="res-body"></pre>
+      </div>
+    </section>
+
+    <!-- 3. Where did it stop -->
+    <section class="card wide" aria-labelledby="h-flow">
+      <h2 id="h-flow">3. What the gateway did with the last request</h2>
+      <ol class="pipeline" id="pipeline"></ol>
+      <p class="hint" id="flow-note">Send something to see how far it got.</p>
+    </section>
+
+    <!-- 4. Scenarios -->
+    <section class="card" aria-labelledby="h-scn">
+      <h2 id="h-scn">4. Try the protections</h2>
+      <div class="scenarios">
+        <div><button id="scn-burst">Burst: 150 requests</button><p class="hint">Per-user limit is 100 requests/s. Expect 200s, then 429s.</p></div>
+        <div><button id="scn-breaker">Trip the circuit breaker</button><p class="hint">Calls <code>/api/java/fail</code> 12 times. Expect 503 JSON, then the breaker opens. Needs the demo endpoints (on in docker compose).</p></div>
+        <div><button id="scn-brute">Wrong password ×6</button><p class="hint">Login is limited per IP. Expect 401s, then 429.</p></div>
+      </div>
+    </section>
+
+    <!-- 5. Timeline -->
+    <section class="card" aria-labelledby="h-tl">
+      <h2 id="h-tl">5. Responses so far <button id="btn-clear" class="ghost small">clear</button></h2>
+      <div class="timeline" id="timeline" aria-label="One square per request, oldest first"></div>
+      <ul class="legend" id="legend"></ul>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <!-- 6. Server metrics -->
+    <section class="card wide" aria-labelledby="h-m">
+      <h2 id="h-m">6. What the server reports <span class="hint" id="metrics-note"></span></h2>
+      <div class="tiles">
+        <div class="tile"><span class="label">Requests / s</span><span class="value" id="m-rps">–</span><svg id="m-spark" viewBox="0 0 120 30" preserveAspectRatio="none" aria-hidden="true"><polyline points=""/></svg></div>
+        <div class="tile"><span class="label">Rate-limited (429) / s</span><span class="value" id="m-429">–</span></div>
+        <div class="tile"><span class="label">Server errors (5xx) / s</span><span class="value" id="m-5xx">–</span></div>
+        <div class="tile"><span class="label">Circuit breakers</span><span class="value" id="m-breakers">–</span></div>
+      </div>
+      <p class="hint">Read from the gateway's <code>/actuator/prometheus</code> every 2 seconds. The Grafana dashboard shows the same data over time.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
