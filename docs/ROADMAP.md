@@ -33,7 +33,7 @@ Checklist state: updated as items land. Unticked items are still open.
 - [x] **JWT signing key** — RS256 key pair from `AUTH_JWT_PRIVATE_KEY` or generated once into a persisted file; no shared secret exists any more (the gateway only needs the public JWKS).
 - [x] **Gateway↔service shared secret** — read from `GATEWAY_SECRET` (compose default is demo-only), compared in constant time. Still a static secret: mTLS or signed service-to-service tokens would be the next step.
 - [x] **Lock down `auth`'s own security chain** — only register/login/refresh/JWKS/health are open; everything else is denied.
-- [x] **Refresh tokens** — 15-minute access tokens, rotating hashed refresh tokens, reuse detection revokes the whole family. Not done: access-token revocation before expiry (a stolen access token works until it expires) and a logout endpoint.
+- [x] **Refresh tokens** — 15-minute access tokens, rotating hashed refresh tokens, reuse detection revokes the whole family, and a daily job deletes expired rows. Not done: access-token revocation before expiry (a stolen access token works until it expires) and a logout endpoint.
 
 ## 6. Resilience & Completeness
 - [x] **Wire `svc-go` into the platform** — routed at `/api/go/**` (static URI, not Eureka) with `/api/go/whoami`. Eureka registration for Go is still open.

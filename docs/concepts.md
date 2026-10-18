@@ -154,7 +154,7 @@ tokens + a refresh-token flow, or a server-side blocklist of revoked token IDs.
 - There is **no access-token revocation**: a stolen access token works until it expires (15
   minutes). Refresh tokens can be revoked (reuse detection), but there is no logout endpoint yet.
 - Key rotation: the gateway picks up a new `kid` automatically (it re-fetches the JWKS on an
-  unknown key id), but `auth` doesn't rotate keys by itself; publishing old+new keys during an
+  unknown key id, at most once per 30 seconds so junk tokens can't flood `auth`), but `auth` doesn't rotate keys by itself; publishing old+new keys during an
   overlap is a manual step today.
 - `auth` denies every route except register/login/refresh/JWKS/health, but it still trusts the
   network for those (no mTLS).

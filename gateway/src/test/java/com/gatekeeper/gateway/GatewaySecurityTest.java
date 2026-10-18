@@ -125,12 +125,46 @@ class GatewaySecurityTest extends GatewayTestSupport {
         client.get().uri("/actuator/health").exchange().expectStatus().isOk();
     }
 
+    private static void sleepPastMinRefresh() {
+        try {
+            Thread.sleep(1100);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @Test
+    void floodOfUnknownKeyIdsDoesNotHammerTheAuthService() {
+        call(token(KEY_A, SUB)).get().expectStatus().isOk(); // keys are cached
+        sleepPastMinRefresh();
+        int before = count("GET", "/auth/.well-known/jwks.json");
+
+        for (int i = 0; i < 50; i++) {
+            RSAKey randomKid = new RSAKey.Builder(KEY_B).keyID(java.util.UUID.randomUUID().toString()).build();
+            call(token(randomKid, SUB)).get().expectStatus().isUnauthorized();
+        }
+
+        // without the throttle this was 50 fetches
+        assertThat(count("GET", "/auth/.well-known/jwks.json") - before).isLessThanOrEqualTo(2);
+    }
+
+    @Test
+    void cachedKeysKeepWorkingWhileTheAuthServiceIsDown() {
+        call(token(KEY_A, SUB)).get().expectStatus().isOk();
+        wm.stubFor(get("/auth/.well-known/jwks.json").willReturn(aResponse().withStatus(500)));
+        sleepPastMinRefresh();
+
+        call(token(KEY_A, SUB)).get().expectStatus().isOk();                    // known kid: served from cache
+        call(token(KEY_B, SUB)).get().expectStatus().isUnauthorized();          // unknown kid: refetch fails => 401, not a crash
+    }
+
     @Test
     void keyRotationIsPickedUpWithoutRestart() {
         String tokenFromNewKey = token(KEY_B, SUB);
         call(tokenFromNewKey).get().expectStatus().isUnauthorized(); // auth hasn't published key-b yet
 
         publishJwks(KEY_A, KEY_B); // auth rotates
+        sleepPastMinRefresh();     // an unknown kid may re-fetch at most once per interval (1s in tests)
         call(tokenFromNewKey).get().expectStatus().isOk();
         call(token(KEY_A, SUB)).get().expectStatus().isOk(); // old key still valid during overlap
     }

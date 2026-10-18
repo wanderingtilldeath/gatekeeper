@@ -100,6 +100,8 @@ gateway:
   jwt:
     jwks-uri: ${JWKS_URI:http://localhost:8081/auth/.well-known/jwks.json}
     issuer: https://gatekeeper.local
+    cache-ttl: 5m            # keys are re-fetched after this
+    min-refresh-interval: 30s  # an unknown kid can trigger a re-fetch at most this often
 
 resilience4j:
   circuitbreaker:

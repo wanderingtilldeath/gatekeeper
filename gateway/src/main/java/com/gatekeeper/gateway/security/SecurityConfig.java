@@ -12,6 +12,9 @@ import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import java.time.Duration;
 
 @Configuration
 @EnableWebFluxSecurity
@@ -29,11 +32,14 @@ public class SecurityConfig {
                 .build();
     }
 
-    /** Verifies RS256 tokens locally against the auth service's JWKS (cached; re-fetched when an unknown kid shows up). */
+    /** Verifies RS256 tokens locally against the auth service's JWKS (see {@link ThrottledJwkSource}). */
     @Bean
     public ReactiveJwtDecoder jwtDecoder(@Value("${gateway.jwt.jwks-uri}") String jwksUri,
-                                         @Value("${gateway.jwt.issuer}") String issuer) {
-        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withJwkSetUri(jwksUri)
+                                         @Value("${gateway.jwt.issuer}") String issuer,
+                                         @Value("${gateway.jwt.cache-ttl:5m}") Duration cacheTtl,
+                                         @Value("${gateway.jwt.min-refresh-interval:30s}") Duration minRefresh) {
+        var keySource = new ThrottledJwkSource(WebClient.create(), jwksUri, cacheTtl, minRefresh, Duration.ofSeconds(3));
+        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withJwkSource(keySource)
                 .jwsAlgorithm(SignatureAlgorithm.RS256)
                 .build();
         decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(issuer));
