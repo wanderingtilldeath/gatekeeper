@@ -1,0 +1,6 @@
+.git
+.idea
+**/target
+**/*.iml
+**/HELP.md
+docs
