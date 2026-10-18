@@ -45,7 +45,7 @@ the registry "where is `auth` right now?" instead of hardcoding an address.
 **Where it lives here:** `discovery-server` runs a Netflix Eureka server
 ([DiscoveryServerApplication.java](../discovery-server/src/main/java/com/gatekeeper/discovery_server/DiscoveryServerApplication.java),
 `@EnableEurekaServer`, port 8761). `auth` and `gateway` register with it as clients. The
-gateway then calls `auth` via `lb://auth` (see routing config below) instead of
+gateway routes to `auth` via `lb://auth` (see routing config below) instead of
 `http://<hardcoded-ip>:8081`.
 
 **Why:** this is the **client-side discovery pattern** — the calling service (or its
@@ -76,7 +76,7 @@ refresh), so config changes don't require rebuilding/redeploying every service.
 **Where it lives here:** `config-server`
 ([ConfigServerApplication.java](../config-server/src/main/java/com/gatekeeper/config_server/ConfigServerApplication.java),
 `@EnableConfigServer`, port 8888) serves property files from
-`src/main/resources/configs/` (`gateway.properties`, `auth.properties`, `src-java.properties`).
+`src/main/resources/configs/` (now just `gateway.properties`).
 Each service points at it via `spring.config.import=optional:configserver:http://localhost:8888`.
 
 **Why:** one source of truth for config across services; in a "real" setup this is usually
@@ -89,11 +89,11 @@ via Spring Cloud Bus + a message broker) so `@RefreshScope` beans pick up new va
 
 **Gap here:** this config server uses the **native profile**
 (`spring.cloud.config.server.native.search-locations=classpath:/configs`) — configs are files
-packaged *inside the jar itself*, not pulled from a real Git-backed repo. That means "change
-config without redeploying" doesn't actually work yet — you'd still need to rebuild the jar to
-change a value. Also, the file `src-java.properties` doesn't match `svc-java`'s
-`spring.application.name=svc-java`, which is a latent bug depending on Config Server's
-name-matching rules.
+packaged *inside the jar itself*, not pulled from a real Git-backed repo, so a change still needs
+a rebuild of `config-server` (a Git backend would remove that). It now serves only the gateway's
+tunables (rate limits and the `svc-java` timeout, see
+[gateway.properties](../config-server/src/main/resources/configs/gateway.properties)); the routes
+themselves live in the gateway so they can be tested.
 
 ---
 
@@ -104,11 +104,10 @@ cross-cutting concerns (routing, auth, rate limiting, circuit breaking) in one p
 duplicating that logic into every service.
 
 **Where it lives here:** `gateway` (Spring Cloud Gateway, WebFlux-based, port 8080). Routes are
-defined in [application.properties](../gateway/src/main/resources/application.properties) and
-(more fully) in the config-server's
-[gateway.properties](../config-server/src/main/resources/configs/gateway.properties):
-`/auth/**` → `lb://auth`, `/api/**` → `lb://svc-java` with a circuit breaker, rate limiter, and
-an injected header.
+defined in [application.yml](../gateway/src/main/resources/application.yml): `/auth/login` (strict
+per-IP limit), `/auth/**`, `/api/java/**` (per-user rate limit, circuit breaker, GET-only retry,
+injected gateway header) and `/api/go/**`. Requests are authenticated locally with Spring
+Security's resource server before any route runs.
 
 **Why:** clients only ever talk to one host; you can add auth/rate-limiting/observability once
 at the gateway instead of in every service; backend services can move/rename/scale without
@@ -126,17 +125,20 @@ only, not business logic).
 **What it is:** **Authentication** = proving who you are (login). **Authorization** = what
 you're allowed to do. A **JWT (JSON Web Token)** is a signed, self-contained token: it carries
 claims (like the username and an expiry) and a cryptographic signature, so any service holding
-the shared secret can verify it *without* calling back to a central database — this is called
-**stateless authentication**.
+the signer's **public key** can verify it *without* calling back to a central service or database
+— this is called **stateless authentication**. (With asymmetric RS256 only `auth` can *create*
+tokens; everyone else just verifies. A shared HMAC secret would let every verifier forge tokens.)
 
 **Where it lives here:**
-[AuthController](../auth/src/main/java/com/gatekeeper/auth/controller/AuthController.java)
-exposes `/auth/register`, `/auth/login`, `/auth/validate`.
-[JwtUtil](../auth/src/main/java/com/gatekeeper/auth/jwt/JwtUtil.java) signs tokens with HMAC-SHA
-(1 hour expiry) and validates them. Passwords are hashed with BCrypt via a
-`BCryptPasswordEncoder` bean
-([PasswordConfig](../auth/src/main/java/com/gatekeeper/auth/config/PasswordConfig.java)) — so
-passwords are *not* stored in plain text, contrary to a stale comment left in `User.java`.
+[AuthController](../auth/src/main/java/com/gatekeeper/auth/web/AuthController.java)
+exposes `/auth/register`, `/auth/login`, `/auth/refresh` and `/auth/.well-known/jwks.json`.
+[SigningKey](../auth/src/main/java/com/gatekeeper/auth/token/SigningKey.java) signs 15-minute
+access tokens with an **RS256 private key** (public half published as JWKS, `kid` in the header).
+[AuthService](../auth/src/main/java/com/gatekeeper/auth/token/AuthService.java) issues rotating
+refresh tokens (stored only as SHA-256 hashes) and revokes a whole token family if an old one is
+replayed. Passwords are hashed with BCrypt
+([PasswordConfig](../auth/src/main/java/com/gatekeeper/auth/config/PasswordConfig.java)); users
+and refresh tokens live in Postgres.
 
 **Why stateless auth:** any service (or the gateway) can validate a token independently without
 a shared session store — good for horizontal scaling, since there's no server-side session
@@ -148,20 +150,14 @@ deleted from the store instantly; a JWT is valid until it expires, unless you ad
 mechanism). "How would you support logout / revoke a compromised token?" → short-lived access
 tokens + a refresh-token flow, or a server-side blocklist of revoked token IDs.
 
-**Gap here (a good one to be honest about in an interview):**
-- The signing secret is a **hardcoded literal string** in
-  [JwtUtil.java:13-14](../auth/src/main/java/com/gatekeeper/auth/jwt/JwtUtil.java)
-  (`"my-super-secret-key-my-super-secret-key"`) instead of coming from environment/config/a
-  secrets manager. If this leaked (e.g. via the public repo), anyone could forge valid tokens.
-- There is **no token revocation** — logout isn't really "logout," it's just the client
-  discarding a token that's still valid server-side until it expires.
-- `auth`'s own
-  [SecurityConfig](../auth/src/main/java/com/gatekeeper/auth/security/SecurityConfig.java) does
-  `csrf().disable()` + `authorizeHttpRequests().anyRequest().permitAll()` — i.e. `auth` itself
-  enforces *no* access control; all enforcement currently happens only at the gateway. That's a
-  single-layer defense — if the gateway is ever bypassed or misconfigured, `auth` has zero
-  independent protection. **Defense in depth** would mean `auth` also checks something, not just
-  the gateway.
+**What's still open (good to be honest about in an interview):**
+- There is **no access-token revocation**: a stolen access token works until it expires (15
+  minutes). Refresh tokens can be revoked (reuse detection), but there is no logout endpoint yet.
+- Key rotation: the gateway picks up a new `kid` automatically (it re-fetches the JWKS on an
+  unknown key id), but `auth` doesn't rotate keys by itself; publishing old+new keys during an
+  overlap is a manual step today.
+- `auth` denies every route except register/login/refresh/JWKS/health, but it still trusts the
+  network for those (no mTLS).
 
 ---
 
@@ -173,7 +169,7 @@ it uses) picks the instance, using data from the service registry — as opposed
 load-balancer appliance/proxy sitting in the network path.
 
 **Where it lives here:** the gateway's routes use `lb://auth` and `lb://svc-java` URIs
-([application.properties](../gateway/src/main/resources/application.properties)) — the `lb://`
+([application.yml](../gateway/src/main/resources/application.yml)) — the `lb://`
 scheme tells Spring Cloud Gateway to resolve the hostname through Eureka + Spring Cloud
 LoadBalancer, picking one of the registered instances (round-robin by default), rather than
 calling a fixed host:port.
@@ -197,13 +193,15 @@ prevents one failing service from cascading into slow, resource-exhausting calls
 whole system.
 
 **Where it lives here:** the `svc-java` route in
-[gateway.properties](../config-server/src/main/resources/configs/gateway.properties) wraps
-calls in a `CircuitBreaker` filter (instance name `javaService`), configured with a sliding
-window of 10 calls, a minimum of 5 calls before evaluating, a 50% failure-rate threshold to
-trip, a 10s wait in the open state, then 2 trial calls in "half-open" state before deciding
-whether to fully close again. On trip, requests are routed to
-[FallbackController](../gateway/src/main/java/com/gatekeeper/gateway/fallback/FallbackController.java)'s
-`/fallback/java` endpoint instead of hitting the real service.
+[application.yml](../gateway/src/main/resources/application.yml) wraps
+calls in a `CircuitBreaker` filter (instance name `javaService`), configured under `resilience4j`
+with a sliding window of 10 calls, a minimum of 5 calls before evaluating, a 50% failure-rate
+threshold to trip, a 10s wait in the open state, then 2 trial calls in "half-open" state before
+deciding whether to fully close again. A 3s response timeout bounds each call, and only GETs are
+retried (2 retries with backoff). On trip (or timeout, or a 5xx), requests are forwarded to
+[FallbackController](../gateway/src/main/java/com/gatekeeper/gateway/fallback/FallbackController.java),
+which answers `503` with a JSON body for any HTTP method. Behaviour is pinned by
+[GatewayResilienceTest](../gateway/src/test/java/com/gatekeeper/gateway/GatewayResilienceTest.java).
 
 **Why:** without this, a slow/failing `svc-java` would cause the gateway to pile up slow
 requests waiting on it, exhausting threads/connections and potentially taking down the gateway
@@ -225,12 +223,13 @@ They're complementary, not alternatives.
 given time window, to protect backend services from being overwhelmed — by an abusive client,
 a bug in another service, or just organic traffic spikes.
 
-**Where it lives here:** the `svc-java` route uses a Redis-backed **token bucket** limiter
-(`RequestRateLimiter` with `redis-rate-limiter.replenishRate=100`,
-`burstCapacity=100` in the config-server version — the local
-[gateway/application.properties](../gateway/src/main/resources/application.properties) has a
-looser `10,20`). Requests are keyed per-caller by a custom `userKeyResolver` bean (by bearer
-token if present, otherwise by remote IP) — so limits apply per-user/per-IP, not globally.
+**Where it lives here:** the `svc-java` and `svc-go` routes use a Redis-backed **token bucket** limiter
+(`RequestRateLimiter`, default `replenishRate=100`, `burstCapacity=100`, tunable via Config Server).
+Requests are keyed by the verified JWT `sub` (`userKeyResolver`), so minting a new token doesn't
+buy a new bucket. `/auth/login` has its own much stricter per-IP limiter against password
+guessing. Over-limit requests get `429` plus `Retry-After`
+([GatewayHeadersFilter](../gateway/src/main/java/com/gatekeeper/gateway/filter/GatewayHeadersFilter.java)).
+If Redis is unreachable the limiter **fails open** — see [ADR 002](adr/002-rate-limit-fails-open.md).
 
 **Why token bucket specifically:** it allows bursts up to the bucket capacity while enforcing a
 steady average rate over time (`replenishRate`) — friendlier to real traffic patterns than a
@@ -244,10 +243,9 @@ implement, doesn't need per-request history. "Why key by user token or IP instea
 limit?" — a global limit lets one abusive client starve everyone else; per-key limits isolate
 the impact.
 
-**Gap here:** the rate limiter config references Redis (`spring.redis.host=localhost`), but
-**no Redis instance is actually provisioned anywhere in this repo** — no docker-compose, no
-setup instructions. The feature is configured but not runnable out of the box (see
-[ROADMAP.md §1](ROADMAP.md#1-containerization--orchestration)).
+**Gap here:** the limit is per-IP/per-user at one gateway; there is no global or per-tenant
+quota, and behind a proxy the IP key would see the proxy's address (X-Forwarded-For is
+deliberately ignored because clients can spoof it).
 
 ---
 
@@ -259,29 +257,26 @@ directly if the network allows it. One mitigation: require a shared secret heade
 gateway knows to inject, so a service can reject any request that didn't come through the
 gateway.
 
-**Where it lives here:** the gateway injects `X-Gateway-Token: GATEWAY_SECRET_123` on the
-`svc-java` route
-([gateway.properties](../config-server/src/main/resources/configs/gateway.properties)).
-[svc-java's GatewayAuthFilter](../svc-java/src/main/java/com/gatekeeper/svc_java/security/GatewayAuthFilter.java)
-rejects any request lacking that exact header with 403.
+**Where it lives here:** the gateway sets `X-Gateway-Token` (from `GATEWAY_SECRET`) on the
+`svc-java` and `svc-go` routes
+([application.yml](../gateway/src/main/resources/application.yml)), replacing any value a client
+sent. [svc-java's GatewayAuthFilter](../svc-java/src/main/java/com/gatekeeper/svc_java/security/GatewayAuthFilter.java)
+(and `svc-go`) reject any request lacking that exact value with 403, comparing in constant time.
 
 **Why:** this is a cheap way to implement "only the gateway may call me directly" without full
 network-level isolation.
 
 **Interview angle:** "Why is a static shared secret weaker than mTLS?" — it's a single static
-value: if it leaks (checked into a public repo, as it literally is here!), anyone can impersonate
+value: if it leaks (say, committed to a repo), anyone can impersonate
 the gateway forever, and there's no per-service identity or rotation. The production-grade
 answer is **mutual TLS (mTLS)** between services (each service has its own certificate, proving
 identity cryptographically per-connection) or a **service mesh** (e.g. Istio/Linkerd) that
 handles this transparently via sidecars, plus short-lived rotated credentials instead of one
 eternal string.
 
-**Gap here:** exactly what the interview answer above describes — `GATEWAY_SECRET_123` is
-hardcoded identically in two places
-([gateway.properties](../config-server/src/main/resources/configs/gateway.properties#L34) and
-[GatewayAuthFilter.java](../svc-java/src/main/java/com/gatekeeper/svc_java/security/GatewayAuthFilter.java#L16))
-and committed to source control — a textbook example of what *not* to do, useful precisely
-because you can point at the real line.
+**Gap here:** it is still one static shared secret (now read from the `GATEWAY_SECRET` environment
+variable instead of source code). The compose default is for local demos only; real deployments
+set their own. Per-service identity and rotation would need mTLS or a mesh.
 
 ---
 

@@ -1,15 +1,18 @@
-// Latency comparison at a fixed request rate (kept under the gateway rate limit of 100/s).
-//   MODE=direct   -> svc-java straight on :8083 (needs the gateway token header)
+// Scenarios 1 and 2: latency at a fixed request rate (kept under the gateway rate limit of 100/s).
+//   MODE=direct   -> svc-java straight on :8083 (adds the gateway token header)
 //   MODE=gateway  -> through the gateway with a valid JWT
-// Run (no local k6 needed):
+// Scenario 1 (gateway overhead):  run MODE=direct, then MODE=gateway, on the current code.
+// Scenario 2 (remote vs local validation): run MODE=gateway on the v0-baseline checkout, then on the current code.
+//
 //   docker run --rm -i -e MODE=gateway -v "$PWD/bench:/bench" grafana/k6 run /bench/gateway.js
+//   (or with a local k6:  k6 run -e MODE=gateway -e GATEWAY=http://localhost:8080 bench/gateway.js)
 import http from 'k6/http';
 import { check } from 'k6';
 
 const MODE = __ENV.MODE || 'gateway';
 const GATEWAY = __ENV.GATEWAY || 'http://host.docker.internal:8080';
 const DIRECT = __ENV.DIRECT || 'http://host.docker.internal:8083';
-const GATEWAY_TOKEN = __ENV.GATEWAY_TOKEN || 'GATEWAY_SECRET_123';
+const GATEWAY_SECRET = __ENV.GATEWAY_SECRET || 'dev-only-gateway-secret';
 const RATE = parseInt(__ENV.RATE || '50');
 
 export const options = {
@@ -30,13 +33,13 @@ export function setup() {
   http.post(`${GATEWAY}/auth/register`, creds, json);
   const res = http.post(`${GATEWAY}/auth/login`, creds, json);
   const body = res.json();
-  return { token: body.accessToken || body.token };
+  return { token: body.accessToken || body.token }; // v0-baseline returned "token"
 }
 
 export default function (data) {
   let res;
   if (MODE === 'direct') {
-    res = http.get(`${DIRECT}/api/java/hello`, { headers: { 'X-Gateway-Token': GATEWAY_TOKEN } });
+    res = http.get(`${DIRECT}/api/java/hello`, { headers: { 'X-Gateway-Token': GATEWAY_SECRET } });
   } else {
     res = http.get(`${GATEWAY}/api/java/hello`, { headers: { Authorization: `Bearer ${data.token}` } });
   }

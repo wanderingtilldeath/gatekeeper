@@ -16,3 +16,7 @@ pkg/
 # IDE
 .idea/
 .vscode/
+
+# Generated JWT signing keys - never commit
+data/
+*.pem
