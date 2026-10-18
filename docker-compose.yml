@@ -1,3 +1,7 @@
+# Secrets come from the environment (or a .env file, see .env.example); the defaults are for local demos only.
+x-gateway-secret: &gateway-secret GATEWAY_SECRET=${GATEWAY_SECRET:-dev-only-gateway-secret}
+x-eureka: &eureka EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
+
 services:
   discovery-server:
     build: ./discovery-server
@@ -13,9 +17,9 @@ services:
   config-server:
     build: ./config-server
     ports:
-      - "8888:8888"
+      - "127.0.0.1:8888:8888"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8888/auth/default"]
+      test: ["CMD", "curl", "-f", "http://localhost:8888/gateway/default"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -24,43 +28,67 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-auth}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth -d auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   auth:
     build: ./auth
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     environment:
-      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-server:8761/eureka/
-      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      - *eureka
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
+      - DB_URL=jdbc:postgresql://postgres:5432/auth
+      - DB_USER=auth
+      - DB_PASSWORD=${DB_PASSWORD:-auth}
+      # The signing key is generated on first start and kept in this volume, so tokens survive restarts.
+      - AUTH_JWT_KEY_FILE=/data/jwt-key.pem
+    volumes:
+      - auth-keys:/data
     depends_on:
       discovery-server:
         condition: service_healthy
       config-server:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 40s
 
   svc-java:
     build: ./svc-java
     ports:
-      - "8083:8083"
+      - "127.0.0.1:8083:8083"   # direct access (needs the gateway token) - used by the benchmark baseline
     environment:
-      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-server:8761/eureka/
+      - *eureka
+      - *gateway-secret
     depends_on:
       discovery-server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "-H", "X-Gateway-Token: GATEWAY_SECRET_123", "http://localhost:8083/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -70,8 +98,8 @@ services:
     build:
       context: .
       dockerfile: svc-go/Dockerfile
-    ports:
-      - "8082:8082"
+    environment:
+      - *gateway-secret
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
       interval: 10s
@@ -84,10 +112,13 @@ services:
     ports:
       - "8080:8080"
     environment:
-      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-server:8761/eureka/
-      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
+      - *eureka
+      - *gateway-secret
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - JWKS_URI=http://auth:8081/auth/.well-known/jwks.json
+      - SVC_GO_URI=http://svc-go:8082
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -103,3 +134,30 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - gateway
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      # Local demo only: no login. Do not expose this port.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
+  auth-keys:

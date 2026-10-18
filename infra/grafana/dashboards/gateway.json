@@ -1,0 +1,191 @@
+{
+  "uid": "gatekeeper-gateway",
+  "title": "Gatekeeper gateway",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requests per second (by route)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (routeId) (rate(spring_cloud_gateway_requests_seconds_count[1m]))",
+          "legendFormat": "{{routeId}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "p95 latency (by route)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, routeId) (rate(spring_cloud_gateway_requests_seconds_bucket[1m])))",
+          "legendFormat": "{{routeId}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Rate-limited (429) per second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (routeId) (rate(spring_cloud_gateway_requests_seconds_count{httpStatusCode=\"429\"}[1m]))",
+          "legendFormat": "{{routeId}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "5xx per second (incl. fallback 503)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (routeId) (rate(spring_cloud_gateway_requests_seconds_count{httpStatusCode=~\"5..\"}[1m]))",
+          "legendFormat": "{{routeId}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Circuit breaker state (1 = active)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "resilience4j_circuitbreaker_state{state=\"closed\"} == 1",
+          "legendFormat": "{{name}} {{state}}"
+        },
+        {
+          "refId": "B",
+          "expr": "resilience4j_circuitbreaker_state{state=\"open\"} == 1",
+          "legendFormat": "{{name}} {{state}}"
+        },
+        {
+          "refId": "C",
+          "expr": "resilience4j_circuitbreaker_state{state=\"half_open\"} == 1",
+          "legendFormat": "{{name}} {{state}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Circuit breaker calls (by outcome)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (name, kind) (rate(resilience4j_circuitbreaker_calls_seconds_count[1m]))",
+          "legendFormat": "{{name}} {{kind}}"
+        }
+      ]
+    }
+  ]
+}
