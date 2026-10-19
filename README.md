@@ -123,3 +123,17 @@ Resume bullet (fill in measured values only): *Built a Spring Cloud Gateway edge
 `discovery-server` (Eureka) · `config-server` (gateway limits) · `gateway` · `auth` · `svc-java` · `svc-go` · `frontend/` (web console) · `infra/` (Prometheus, Grafana) · `bench/` (k6) · `docs/`
 
 Stack: Java 21, Spring Boot 3.5.15, Spring Cloud 2025.0.3 (the last open-source release of that line; moving to Boot 4 is a separate migration), Go 1.25, Postgres 16, Redis 7.
+
+## Free hosting for the console (demo mode)
+
+`frontend/` is plain static files (no build). When no gateway answers at `/gw/`, it runs an in-browser model of the gateway
+(`frontend/demo.js`) and shows a banner saying so. The model follows the behaviour the gateway tests check (401, 429 + `Retry-After`,
+breaker fallback, refresh rotation, tenant from the token); tokens are not really signed and timings are meaningless, so quote real
+numbers only from `bench/results/`. Force a mode with `?mode=demo` or `?mode=live`.
+
+Either option is free and needs no credit card or CI:
+
+- **Cloudflare Pages:** connect the repo, framework preset "None", build command empty, output directory `frontend`. `frontend/_headers` sets the CSP.
+- **GitHub Pages:** `git subtree push --prefix frontend origin gh-pages`, then Settings > Pages > Deploy from branch `gh-pages` (root).
+
+The real backend (3 JVM services, Postgres, Redis, Eureka) does not fit any free hosting tier; run it with `docker compose up` for a live demo.

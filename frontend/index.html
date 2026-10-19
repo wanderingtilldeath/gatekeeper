@@ -15,6 +15,13 @@
     <div class="health" id="health" role="status">gateway: checking…</div>
   </header>
 
+  <div id="demo-banner" class="banner" hidden>
+    <strong>Demo mode.</strong> No gateway answered, so a model of it runs in this page. It follows the behaviour the integration tests check
+    (401, 429 with Retry-After, circuit breaker, refresh rotation, tenant from the token); tokens are not really signed and timings mean nothing.
+    Run <code>docker compose up</code> to use the real gateway.
+    <label>Rate-limit bucket per <select id="scope"><option>user</option><option>tenant</option><option>global</option></select></label>
+  </div>
+
   <noscript>This console needs JavaScript.</noscript>
 
   <main class="grid">
@@ -24,6 +31,7 @@
       <div class="row">
         <label>Username <input id="username" autocomplete="off" spellcheck="false"></label>
         <label>Password <input id="password" type="text" autocomplete="off" value="pass1234"></label>
+        <label>Tenant <input id="tenant" autocomplete="off" spellcheck="false" placeholder="default"></label>
       </div>
       <div class="row buttons">
         <button id="btn-register">Register</button>
@@ -79,6 +87,7 @@
       <div class="scenarios">
         <div><button id="scn-burst">Burst: 150 requests</button><p class="hint">Per-user limit is 100 requests/s. Expect 200s, then 429s.</p></div>
         <div><button id="scn-breaker">Trip the circuit breaker</button><p class="hint">Calls <code>/api/java/fail</code> 12 times. Expect 503 JSON, then the breaker opens. Needs the demo endpoints (on in docker compose).</p></div>
+        <div><button id="scn-neighbour">Noisy neighbour</button><p class="hint">Your tenant sends 150 requests while a second user in another tenant sends 20. With one <em>global</em> bucket the quiet tenant gets 429s; with <em>tenant</em> buckets it does not. Live mode: set <code>GATEWAY_LIMITS_API_SCOPE</code> on the gateway.</p><p class="hint" id="nb-result" role="status"></p></div>
         <div><button id="scn-brute">Wrong password ×6</button><p class="hint">Login is limited per IP. Expect 401s, then 429.</p></div>
       </div>
     </section>
@@ -104,6 +113,7 @@
     </section>
   </main>
 
+  <script src="demo.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

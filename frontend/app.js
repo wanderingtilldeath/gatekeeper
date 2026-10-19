@@ -3,6 +3,8 @@
 // textContent (never innerHTML), so a hostile response can't inject markup.
 
 const GW = '/gw'; // nginx forwards /gw/* to the gateway, so the browser stays on one origin (no CORS)
+let doFetch = (...args) => fetch(...args); // swapped for the in-browser model (demo.js) when no real gateway answers
+let demo = false;
 
 const $ = (sel) => document.querySelector(sel);
 function h(tag, props = {}, ...kids) {
@@ -60,7 +62,7 @@ async function call(method, path, { token = state.access, headers = {}, body, wh
   const t0 = performance.now();
   const entry = { id: state.log.length + 1, method, path, what, status: 0, ms: 0, headers: {}, body: '' };
   try {
-    const res = await fetch(GW + path, init);
+    const res = await doFetch(GW + path, init);
     entry.status = res.status;
     entry.body = await res.text();
     for (const name of SHOWN_HEADERS) { const v = res.headers.get(name); if (v !== null) entry.headers[name] = v; }
@@ -89,7 +91,8 @@ function setTokens(json) {
 function parseJson(text) { try { return JSON.parse(text); } catch { return null; } }
 
 async function register() {
-  const e = await call('POST', '/auth/register', { token: null, body: creds(), what: 'register' });
+  const tenant = $('#tenant').value.trim();
+  const e = await call('POST', '/auth/register', { token: null, body: tenant ? { ...creds(), tenant } : creds(), what: 'register' });
   showResult(e);
   $('#auth-hint').textContent = e.status === 201 ? 'Registered. Now log in.' : (e.status === 409 ? 'That username exists. Registering again never overwrites it (409).' : 'Register failed: see the result below.');
 }
@@ -218,6 +221,26 @@ async function brute() {
   for (let i = 0; i < 6; i++) await call('POST', '/auth/login', { token: null, body: { username: $('#username').value.trim(), password: 'wrong-password-' + i }, what: 'wrong password' });
 }
 
+// Noisy neighbour: this session's tenant floods the API while a second user in another tenant sends a few requests.
+// With one shared bucket the quiet tenant is starved; with per-tenant buckets it is not.
+async function neighbour() {
+  if (!state.access) { $('#flow-note').textContent = 'Log in first: that user is the noisy tenant.'; return; }
+  const out = $('#nb-result'); out.textContent = 'Running…';
+  const probe = { username: 'quiet-' + Math.random().toString(36).slice(2, 7), password: 'pass1234' };
+  const tenant = 'quiet-' + Math.random().toString(36).slice(2, 6);
+  await call('POST', '/auth/register', { token: null, body: { ...probe, tenant }, what: 'register quiet tenant user' });
+  const login = await call('POST', '/auth/login', { token: null, body: probe, what: 'login quiet tenant user' });
+  const quietToken = (parseJson(login.body) || {}).accessToken;
+  if (!quietToken) { out.textContent = `Could not log in the second user (${login.status}). Wait ~10 s (login is rate limited) and retry.`; return; }
+  const noisy = { ok: 0, limited: 0 }, quiet = { ok: 0, limited: 0 };
+  const tally = (t, e) => { if (e.status === 200) t.ok++; else if (e.status === 429) t.limited++; };
+  await Promise.all([
+    pool(150, 25, async () => tally(noisy, await call('GET', '/api/java/hello', { what: 'noisy tenant' }))),
+    (async () => { for (let i = 0; i < 20; i++) { tally(quiet, await call('GET', '/api/java/hello', { token: quietToken, what: 'quiet tenant' })); await sleep(20); } })(),
+  ]);
+  out.textContent = `noisy tenant: ${noisy.ok} ok, ${noisy.limited} limited. quiet tenant: ${quiet.ok} ok, ${quiet.limited} limited.`;
+}
+
 // ---------- server side: health + Prometheus metrics ----------
 function parseProm(text) {
   const out = [];
@@ -241,7 +264,7 @@ function summarize(samples) {
 let prev = null; const rpsHistory = [];
 async function pollMetrics() {
   try {
-    const res = await fetch(GW + '/actuator/prometheus');
+    const res = await doFetch(GW + '/actuator/prometheus');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const now = summarize(parseProm(await res.text())); const t = Date.now();
     if (prev) {
@@ -266,14 +289,29 @@ async function pollMetrics() {
 async function pollHealth() {
   const el = $('#health');
   try {
-    const res = await fetch(GW + '/actuator/health');
+    const res = await doFetch(GW + '/actuator/health');
     const ok = res.ok && (parseJson(await res.text()) || {}).status === 'UP';
     el.textContent = ok ? 'gateway: UP' : 'gateway: DOWN'; el.className = 'health ' + (ok ? 'up' : 'down');
   } catch { el.textContent = 'gateway: unreachable'; el.className = 'health down'; }
 }
 
 // ---------- start ----------
-function init() {
+async function pickMode() {
+  const forced = new URLSearchParams(location.search).get('mode');
+  let live = false;
+  if (forced !== 'demo') {
+    try { const res = await fetch(GW + '/actuator/health'); live = res.ok && (parseJson(await res.text()) || {}).status === 'UP'; } catch { /* no gateway here */ }
+  }
+  if (forced === 'live') live = true;
+  if (live) return;
+  demo = true; doFetch = window.demoFetch;
+  $('#demo-banner').hidden = false;
+  $('#scope').value = window.demoControl.getScope();
+  $('#scope').onchange = (e) => window.demoControl.setScope(e.target.value);
+}
+
+async function init() {
+  await pickMode();
   $('#username').value = 'demo-' + Math.random().toString(36).slice(2, 6);
   $('#preset').replaceChildren(...PRESETS.map((p) => h('option', { text: p.label })));
   $('#legend').replaceChildren(...LEGEND.map(([cls, text]) => h('li', {}, h('span', { class: 'cell ' + cls }), text)));
@@ -283,6 +321,7 @@ function init() {
   $('#scn-burst').onclick = (e) => withButton(e.currentTarget, burst);
   $('#scn-breaker').onclick = (e) => withButton(e.currentTarget, trip);
   $('#scn-brute').onclick = (e) => withButton(e.currentTarget, brute);
+  $('#scn-neighbour').onclick = (e) => withButton(e.currentTarget, neighbour);
   $('#btn-clear').onclick = () => { state.log = []; renderTimeline(); };
   renderTimeline(); renderToken();
   pollHealth(); pollMetrics();

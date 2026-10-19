@@ -64,3 +64,5 @@ pre { margin: 0; padding: 8px; background: var(--bg); border: 1px solid var(--li
 .tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
 .tile .label { font-size: 12px; color: var(--muted); } .tile .value { font-size: 22px; font-weight: 700; } .tile svg { width: 100%; height: 30px; } .tile polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; margin-right: 6px; font-weight: 600; }
+.banner { max-width: 1200px; margin: 8px auto; padding: 10px 14px; border: 1px solid var(--warn); background: var(--warn-bg); color: var(--text); border-radius: 8px; font-size: 13.5px; }
+.banner label { margin-left: 8px; white-space: nowrap; }
