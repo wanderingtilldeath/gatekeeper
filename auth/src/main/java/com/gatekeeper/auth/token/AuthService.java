@@ -41,12 +41,13 @@ public class AuthService {
         this.dummyHash = passwordEncoder.encode("dummy-password");
     }
 
-    public User register(String username, String password) {
+    /** tenant may be null (falls back to "default"). */
+    public User register(String username, String password, String tenant) {
         if (users.findByUsername(username).isPresent()) {
             throw ApiException.conflict("Username already taken");
         }
         try {
-            return users.saveAndFlush(new User(username, passwordEncoder.encode(password), "USER"));
+            return users.saveAndFlush(new User(username, passwordEncoder.encode(password), "USER", tenant != null ? tenant : "default"));
         } catch (DataIntegrityViolationException e) { // lost a race with a concurrent register
             throw ApiException.conflict("Username already taken");
         }

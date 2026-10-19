@@ -25,7 +25,9 @@ public class AuthController {
 
     public record RegisterRequest(
             @NotBlank @Size(min = 3, max = 32) @Pattern(regexp = "[A-Za-z0-9_.-]+", message = "letters, digits, _ . - only") String username,
-            @NotBlank @Size(min = 8, max = 72) String password) {}
+            @NotBlank @Size(min = 8, max = 72) String password,
+            // shortcut: any caller can pick any tenant at register; real systems assign it via invite or admin
+            @Pattern(regexp = "[a-z0-9-]{1,64}", message = "lowercase letters, digits, - only") String tenant) {}
 
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {}
 
@@ -44,7 +46,7 @@ public class AuthController {
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
     public RegisterResponse register(@Valid @RequestBody RegisterRequest request) {
-        User user = authService.register(request.username(), request.password());
+        User user = authService.register(request.username(), request.password(), request.tenant());
         return new RegisterResponse(user.getId(), user.getUsername());
     }
 

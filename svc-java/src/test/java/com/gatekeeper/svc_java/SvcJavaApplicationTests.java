@@ -31,10 +31,11 @@ class SvcJavaApplicationTests {
     void whoamiEchoesGatewayHeaders() throws Exception {
         mvc.perform(get("/api/java/whoami")
                         .header("X-Gateway-Token", "test-secret")
-                        .header("X-User-Id", "u-1").header("X-User-Roles", "USER"))
+                        .header("X-User-Id", "u-1").header("X-User-Roles", "USER").header("X-Tenant-Id", "acme"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value("u-1"))
-                .andExpect(jsonPath("$.roles").value("USER"));
+                .andExpect(jsonPath("$.roles").value("USER"))
+                .andExpect(jsonPath("$.tenantId").value("acme"));
     }
 
     @Test

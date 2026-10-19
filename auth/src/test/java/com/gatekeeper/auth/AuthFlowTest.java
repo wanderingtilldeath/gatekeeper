@@ -65,6 +65,19 @@ class AuthFlowTest {
     }
 
     @Test
+    void tenantChosenAtRegisterEndsUpInTheAccessToken() throws Exception {
+        String name = "u" + UUID.randomUUID().toString().substring(0, 8);
+        postJson("/auth/register", "{\"username\":\"" + name + "\",\"password\":\"pass1234\",\"tenant\":\"acme\"}")
+                .andExpect(status().isCreated());
+        postJson("/auth/register", "{\"username\":\"" + name + "x\",\"password\":\"pass1234\",\"tenant\":\"Bad Tenant!\"}")
+                .andExpect(status().isBadRequest());
+
+        var key = JWKSet.parse(signingKey.jwks()).getKeys().get(0).toRSAKey();
+        Jwt jwt = NimbusJwtDecoder.withPublicKey(key.toRSAPublicKey()).build().decode(login(name).get("accessToken").asText());
+        assertThat(jwt.getClaimAsString("tenant")).isEqualTo("acme");
+    }
+
+    @Test
     void registerValidatesInput() throws Exception {
         postJson("/auth/register", creds("", "pass1234")).andExpect(status().isBadRequest());
         postJson("/auth/register", creds("alice", "short")).andExpect(status().isBadRequest());
@@ -93,6 +106,7 @@ class AuthFlowTest {
         assertThat(jwt.getIssuer().toString()).isEqualTo("https://gatekeeper.local");
         assertThat(jwt.<java.util.List<String>>getClaim("roles")).containsExactly("USER");
         assertThat(jwt.getClaimAsString("username")).isEqualTo(name);
+        assertThat(jwt.getClaimAsString("tenant")).isEqualTo("default");
         assertThat(Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt())).isEqualTo(Duration.ofMinutes(15));
     }
 

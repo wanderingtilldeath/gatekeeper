@@ -82,9 +82,18 @@ abstract class GatewayTestSupport {
         return token(key, sub, Instant.now().plus(Duration.ofMinutes(15)), ISSUER);
     }
 
+    static String tenantToken(RSAKey key, String sub, String tenant) {
+        return token(key, sub, Instant.now().plus(Duration.ofMinutes(15)), ISSUER, tenant);
+    }
+
     static String token(RSAKey key, String sub, Instant expires, String issuer) {
+        return token(key, sub, expires, issuer, null);
+    }
+
+    static String token(RSAKey key, String sub, Instant expires, String issuer, String tenant) {
         try {
             JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                    .claim("tenant", tenant)
                     .issuer(issuer).subject(sub)
                     .issueTime(new Date()).expirationTime(Date.from(expires))
                     .claim("roles", List.of("USER", "ADMIN"))

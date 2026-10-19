@@ -50,7 +50,7 @@ spring:
               filters:
                 - name: RequestRateLimiter
                   args:
-                    key-resolver: "#{@userKeyResolver}"
+                    key-resolver: "#{@apiKeyResolver}"
                     redis-rate-limiter.replenishRate: ${gateway.limits.api.rate:100}
                     redis-rate-limiter.burstCapacity: ${gateway.limits.api.burst:100}
                 - name: CircuitBreaker
@@ -76,7 +76,7 @@ spring:
               filters:
                 - name: RequestRateLimiter
                   args:
-                    key-resolver: "#{@userKeyResolver}"
+                    key-resolver: "#{@apiKeyResolver}"
                     redis-rate-limiter.replenishRate: ${gateway.limits.api.rate:100}
                     redis-rate-limiter.burstCapacity: ${gateway.limits.api.burst:100}
                 - name: CircuitBreaker

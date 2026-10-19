@@ -26,11 +26,13 @@ public class HealthController {
     @GetMapping("/whoami")
     public Map<String, String> whoami(@RequestHeader(value = "X-User-Id", required = false) String userId,
                                       @RequestHeader(value = "X-User-Roles", required = false) String roles,
+                                      @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId,
                                       @RequestHeader(value = "X-Request-Id", required = false) String requestId) {
         Map<String, String> body = new HashMap<>();
         body.put("service", "svc-java");
         body.put("userId", userId);
         body.put("roles", roles);
+        body.put("tenantId", tenantId);
         body.put("requestId", requestId);
         return body;
     }

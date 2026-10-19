@@ -63,6 +63,7 @@ public class SigningKey {
                 .expiresAt(now.plus(props.accessTtl()))
                 .id(UUID.randomUUID().toString())
                 .claim("username", user.getUsername())
+                .claim("tenant", user.getTenantId())
                 .claim("roles", user.getRoleList())
                 .build();
         JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).keyId(rsaKey.getKeyID()).build();

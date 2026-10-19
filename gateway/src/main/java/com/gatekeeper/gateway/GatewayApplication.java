@@ -1,10 +1,12 @@
 package com.gatekeeper.gateway;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import reactor.core.publisher.Mono;
 
 import java.net.InetSocketAddress;
@@ -23,6 +25,20 @@ public class GatewayApplication {
 	public KeyResolver userKeyResolver() {
 		return exchange -> exchange.getPrincipal().map(Principal::getName)
 				.switchIfEmpty(Mono.fromSupplier(() -> remoteIp(exchange.getRequest().getRemoteAddress())));
+	}
+
+	/**
+	 * Bucket for the /api routes. scope=user (default): one per JWT sub. scope=tenant: one per tenant, so a tenant
+	 * flooding the API drains only its own bucket. scope=global: one shared bucket (the "before" case in bench/).
+	 */
+	@Bean
+	public KeyResolver apiKeyResolver(@Value("${gateway.limits.api.scope:user}") String scope) {
+		return exchange -> exchange.getPrincipal().map(p -> switch (scope) {
+			case "global" -> "all";
+			case "tenant" -> "tenant:" + (p instanceof JwtAuthenticationToken jwt && jwt.getToken().getClaimAsString("tenant") != null
+					? jwt.getToken().getClaimAsString("tenant") : "default");
+			default -> p.getName();
+		}).switchIfEmpty(Mono.fromSupplier(() -> remoteIp(exchange.getRequest().getRemoteAddress())));
 	}
 
 	/**

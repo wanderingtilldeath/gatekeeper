@@ -26,13 +26,21 @@ public class User {
     @Column(nullable = false)
     private String roles;
 
+    @Column(name = "tenant_id", nullable = false)
+    private String tenantId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
     protected User() {}
 
     public User(String username, String passwordHash, String roles) {
+        this(username, passwordHash, roles, "default");
+    }
+
+    public User(String username, String passwordHash, String roles, String tenantId) {
         this.id = UUID.randomUUID();
+        this.tenantId = tenantId;
         this.username = username;
         this.passwordHash = passwordHash;
         this.roles = roles;
@@ -42,5 +50,6 @@ public class User {
     public UUID getId() { return id; }
     public String getUsername() { return username; }
     public String getPasswordHash() { return passwordHash; }
+    public String getTenantId() { return tenantId; }
     public List<String> getRoleList() { return List.of(roles.split(",")); }
 }

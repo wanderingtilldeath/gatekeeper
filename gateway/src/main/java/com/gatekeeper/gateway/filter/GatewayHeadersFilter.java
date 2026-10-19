@@ -19,8 +19,8 @@ import java.util.UUID;
 
 /**
  * Runs on every routed request:
- * 1. drops any client-supplied X-User-* header (a client must not be able to claim an identity),
- * 2. sets X-User-Id / X-User-Roles from the verified JWT,
+ * 1. drops any client-supplied X-User-* / X-Tenant-* header (a client must not be able to claim an identity or tenant),
+ * 2. sets X-User-Id / X-User-Roles / X-Tenant-Id from the verified JWT,
  * 3. sets a fresh X-Request-Id (sent downstream and echoed back),
  * 4. adds Retry-After to 429 responses.
  */
@@ -29,6 +29,7 @@ public class GatewayHeadersFilter implements GlobalFilter, Ordered {
 
     public static final String USER_ID = "X-User-Id";
     public static final String USER_ROLES = "X-User-Roles";
+    public static final String TENANT_ID = "X-Tenant-Id";
     public static final String REQUEST_ID = "X-Request-Id";
 
     @Override
@@ -44,10 +45,17 @@ public class GatewayHeadersFilter implements GlobalFilter, Ordered {
     private ServerWebExchange decorate(ServerWebExchange exchange, Optional<Jwt> jwt) {
         String requestId = UUID.randomUUID().toString();
         var request = exchange.getRequest().mutate().headers(headers -> {
-            headers.keySet().removeIf(name -> name.toLowerCase(Locale.ROOT).startsWith("x-user-"));
+            headers.keySet().removeIf(name -> {
+                String lower = name.toLowerCase(Locale.ROOT);
+                return lower.startsWith("x-user-") || lower.startsWith("x-tenant-");
+            });
             headers.set(REQUEST_ID, requestId);
             jwt.ifPresent(token -> {
                 headers.set(USER_ID, token.getSubject());
+                String tenant = token.getClaimAsString("tenant");
+                if (tenant != null) {
+                    headers.set(TENANT_ID, tenant);
+                }
                 List<String> roles = token.getClaimAsStringList("roles");
                 if (roles != null) {
                     headers.set(USER_ROLES, String.join(",", roles));
