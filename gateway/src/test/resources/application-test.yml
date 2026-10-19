@@ -1,0 +1,28 @@
+spring:
+  cloud:
+    config:
+      enabled: false
+  data:
+    redis:
+      port: 1   # nothing listens here: rate limiting runs in its fail-open path unless a test mocks the limiter
+
+eureka:
+  client:
+    enabled: false
+
+GATEWAY_SECRET: test-gateway-secret
+
+gateway:
+  jwt:
+    min-refresh-interval: 1s
+  svc-java:
+    response-timeout-ms: 300
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 4
+        minimumNumberOfCalls: 4
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s

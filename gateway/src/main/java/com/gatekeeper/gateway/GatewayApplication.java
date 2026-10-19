@@ -2,42 +2,49 @@ package com.gatekeeper.gateway;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
-import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.context.annotation.Bean;
-import org.springframework.http.HttpHeaders;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.context.annotation.Primary;
 import reactor.core.publisher.Mono;
 
+import java.net.InetSocketAddress;
+import java.security.Principal;
+
 @SpringBootApplication
-@EnableDiscoveryClient
 public class GatewayApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(GatewayApplication.class, args);
 	}
 
-    @Bean
-    @LoadBalanced
-    public WebClient.Builder webClientBuilder() {
-        return WebClient.builder();
-    }
+	/** Rate-limit bucket per authenticated user (JWT sub), so minting new tokens doesn't reset the bucket. */
+	@Bean
+	@Primary
+	public KeyResolver userKeyResolver() {
+		return exchange -> exchange.getPrincipal().map(Principal::getName)
+				.switchIfEmpty(Mono.fromSupplier(() -> remoteIp(exchange.getRequest().getRemoteAddress())));
+	}
 
-    @Bean(name = "userKeyResolver")
-    public KeyResolver userKeyResolver() {
-        return exchange -> {
-            String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+	/**
+	 * Per-IP buckets for the unauthenticated /auth routes. The Redis limiter keys its bucket by this value alone
+	 * (not by route), so each route gets its own prefix; otherwise login and register would drain one shared bucket.
+	 * X-Forwarded-For is ignored on purpose (spoofable).
+	 */
+	@Bean
+	public KeyResolver loginKeyResolver() {
+		return ipKeyResolver("login:");
+	}
 
-            if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                return Mono.just(authHeader.substring(7));
-            }
+	@Bean
+	public KeyResolver authKeyResolver() {
+		return ipKeyResolver("auth:");
+	}
 
-            return Mono.just(exchange.getRequest().getRemoteAddress().getAddress().getHostAddress());
-        };
-    }
+	private static KeyResolver ipKeyResolver(String prefix) {
+		return exchange -> Mono.just(prefix + remoteIp(exchange.getRequest().getRemoteAddress()));
+	}
 
-
-
-
+	private static String remoteIp(InetSocketAddress address) {
+		return address == null || address.getAddress() == null ? "unknown" : address.getAddress().getHostAddress();
+	}
 }
