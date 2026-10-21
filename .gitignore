@@ -16,3 +16,6 @@ pkg/
 # IDE
 .idea/
 .vscode/
+
+# Personal notes
+INTERVIEW_PREP.md
