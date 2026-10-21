@@ -37,17 +37,19 @@ public class JwtAuthFilter implements WebFilter {
                 .uri("http://auth/auth/validate?token={t}", token)
                 .retrieve()
                 .bodyToMono(String.class)
+                // only a failed token check means 403; downstream errors must keep their real status
+                .onErrorResume(ex -> {
+                    org.slf4j.LoggerFactory.getLogger(JwtAuthFilter.class).warn("auth filter error: {}", ex.toString());
+                    return Mono.just("Invalid token");
+                })
                 .flatMap(username -> {
                     if ("Invalid token".equals(username)) {
                         exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
                         return exchange.getResponse().setComplete();
                     }
-                    return chain.filter(exchange);
-                })
-                .onErrorResume(ex -> {
-                    exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
-                    return exchange.getResponse().setComplete();
+                    // overwrite, never trust a client-supplied X-User
+                    return chain.filter(exchange.mutate()
+                            .request(r -> r.headers(h -> h.set("X-User", username))).build());
                 });
     }
 }
-

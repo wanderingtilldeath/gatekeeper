@@ -1,0 +1,8 @@
+# Local dependencies: Redis (gateway rate limiting) and RabbitMQ (order events).
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports: ["5672:5672", "15672:15672"]   # UI: http://localhost:15672 (guest/guest)

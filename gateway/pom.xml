@@ -28,6 +28,8 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!-- lets Mockito run on JDK 25 -->
+		<argLine>-Dnet.bytebuddy.experimental=true</argLine>
 		<spring-cloud.version>2025.0.0</spring-cloud.version>
 	</properties>
 	<dependencies>

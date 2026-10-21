@@ -16,7 +16,7 @@ discovery-server :8761  E: S/discovery_server/DiscoveryServerApplication (@Enabl
   tests: T/discovery_server/DiscoveryServerApplicationTests (contextLoads)
 
 gateway :8080  E: S/gateway/GatewayApplication
-  filter: S/gateway/security/JwtAuthFilter (WebFilter)
+  filter: S/gateway/security/JwtAuthFilter (WebFilter) | S/gateway/filter/RequestLogFilter -> Redis incidents:requests (test: RequestLogFilterTest)
   schema: R/application.properties (routes[], redis host/port)
           R/bootstrap.properties (config import + eureka url)
   tests: T/gateway/GatewayApplicationTests (contextLoads)
@@ -30,13 +30,26 @@ auth :8081  E: S/auth/AuthApplication
   tests: T/auth/AuthApplicationTests (contextLoads)
   deps: web, security, data-jpa, h2, jjwt 0.x, actuator, eureka-client, config
 
-svc-java :8083  E: S/svc_java/SvcJavaApplication
-  http: S/svc_java/controller/HealthController  @RequestMapping /api
-  schema: R/application.properties, R/bootstrap.properties
-  tests: T/svc_java/SvcJavaApplicationTests (contextLoads)
+svc-java :8083  E: S/svc_java/SvcJavaApplication (@EnableFeignClients)
+  http: controller/HealthController GET /api/java/health | controller/OrderController POST,GET /api/java/orders (needs X-User from gateway)
+  logic: service/OrderService (reserve via client/InventoryClient -> publish event/OrderPlaced); config/RabbitConfig (exchange "orders", JSON converter)
+  schema: R/application.properties (feign timeouts, resilience4j breaker, rabbitmq), R/bootstrap.properties
+  tests: T/svc_java/OrderServiceTest (4 unit), SvcJavaApplicationTests (contextLoads)
 
-svc-go :8082  E: svc-go/main.go (main)  mod: go.mod (go 1.25.2, root)
-  schema: [none]   tests: [none]   ! not in Eureka, not routed by gateway
+svc-go :8082  E: svc-go/main.go  mod: go.mod (go 1.25.2, root)
+  http: inventory.go GET /inventory/{sku}, POST /inventory/{sku}/reserve -> {reserved,remaining}; eureka.go REST register + 30s heartbeat
+  tests: svc-go/inventory_test.go   ! not routed by gateway (only called by svc-java)
+
+svc-ai :8085  E: S/svc_ai/SvcAiApplication (@ConfigurationPropertiesScan)
+  http: AiController /ai: POST chat, GET usage, POST agent/act, GET agent/audit[?status=], POST agent/approvals/{id}/approve|reject (admin only)
+  logic: ChatService (Redactor -> Redis cache -> daily budget -> providers in @Order) | ActionService (allow-list -> per-min limit -> risky=PENDING -> audit)
+  incident: IncidentService.diagnose (rules: NOT_REGISTERED|ERRORS|SLOW|RATE_LIMITED|AUTH) -> explain via ChatService.callProviders; GET /ai/incident/summary?minutes=, /ai/incident/request/{id} (admin); @Scheduled watch -> INCIDENT event
+  schema: AiProps (R/application.properties: ai.incident-rate, ai.incident-slow-ms, ai.daily-tokens, ai.primary-fails, ai.risky, ai.admins, ai.agents.<name>=tools); AiEvent -> exchange "ai"
+  tests: T/svc_ai/AiTest (7, fake Redis), IncidentTest (7 rules)   ! providers + tools are fakes; audit is in-memory; tokens ~ chars/4
+
+svc-notify :8084  E: svc_notify/SvcNotifyApplication
+  async: OrderListener @RabbitListener orders.notify; RabbitConfig queue+DLQ (orders.notify.dlq), retry 3x (R/application.properties)
+  tests: T/svc_notify/OrderListenerTest
 ```
 All Java modules: Java 21 (pom), independent Maven projects, wrapper `<m>/mvnw`. README says 17/Boot 3 ! stale on version.
 
@@ -53,6 +66,7 @@ gw-authn    JwtAuthFilter: skip path ^/auth; else Bearer required
             no header 401 | "Invalid token" or error 403
 gw-routing  gateway R/application.properties:
             routes[0] auth     /auth/**      -> lb://auth
+            routes[2] svc-ai /ai/** -> lb://svc-ai + RequestRateLimiter 10,20
             routes[1] svc-java /api/java/**  -> lb://svc-java  + RequestRateLimiter 10,20
 gw-ratelim  RequestRateLimiter redis-rate-limiter=10,20 ! needs redis localhost:6379
             ! props use spring.redis.* (Boot 3 wants spring.data.redis.*)
@@ -66,15 +80,16 @@ actuator    auth only: health,info exposed (R/application.properties)
 
 ## Ports
 ```
-8080 gateway | 8081 auth | 8082 svc-go | 8083 svc-java | 8761 eureka | 8888 config | 6379 redis
+8080 gateway | 8081 auth | 8082 svc-go | 8083 svc-java | 8084 svc-notify | 8085 svc-ai | 8761 eureka | 8888 config | 6379 redis | 5672/15672 rabbitmq
 ```
 
 ## Run / test
 ```
 <m>: ./mvnw spring-boot:run | ./mvnw test | ./mvnw test -Dtest=Class#method
 go:  go run ./svc-go            (repo root)
-order: config-server -> discovery-server -> auth,svc-java -> gateway
+infra: docker compose -f infra/docker-compose.yml up -d
+order: config-server -> discovery-server -> auth,svc-go,svc-notify -> svc-java,svc-ai -> gateway
 ```
 
 ## Test coverage
-Only generated `contextLoads` smoke tests per Java module. [none] for: register/login/validate, JwtAuthFilter, routing, rate limit, svc-go.
+Only generated `contextLoads` smoke tests per Java module. Unit tests: OrderService, OrderListener, inventory reserve. [none] for: register/login/validate, JwtAuthFilter/RequestIdFilter, routing, rate limit, end-to-end (manual only).
